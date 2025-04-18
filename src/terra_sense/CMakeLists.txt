@@ -1,9 +1,7 @@
 cmake_minimum_required(VERSION 3.8)
 project(terra_sense)
 
-set(lib_name ${PROJECT_NAME}_core)
-
-# === Environment ===
+set(lib_name ${PROJECT_NAME}_terrain_layer)
 
 # Default to C99
 if(NOT CMAKE_C_STANDARD)
@@ -23,43 +21,55 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(nav2_costmap_2d REQUIRED)
+find_package(grid_map_ros REQUIRED)
+find_package(grid_map_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(pcl_ros REQUIRED)
-find_package(pluginlib REQUIRED)
 
 set(dep_pkgs
   rclcpp
+  rclcpp_components
   rclpy
   std_msgs
-  nav2_costmap_2d
-  pluginlib
+  grid_map_ros
+  grid_map_msgs
   sensor_msgs
   pcl_conversions
   pcl_ros
 )
 
-
-# either library or executable
-add_library(${lib_name}  SHARED 
+# Build the terrain layer as a component
+add_library(${lib_name} SHARED
   src/terrain_layer.cpp)
 
-# Cpp
-include_directories(
-  include
+target_include_directories(${lib_name} PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
 )
 
-install(TARGETS ${lib_name}
-DESTINATION lib
-)
-# DIRECTORY
-# FILES
-
-pluginlib_export_plugin_description_file(nav2_costmap_2d terrain_layer.xml)
 ament_target_dependencies(${lib_name} ${dep_pkgs})
+
+# Register component
+rclcpp_components_register_node(${lib_name}
+  PLUGIN "terra_sense::TerrainLayer"
+  EXECUTABLE terrain_layer_node
+)
+
+# Install targets
+install(TARGETS ${lib_name}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+install(
+  DIRECTORY include/
+  DESTINATION include
+)
 
 install(
   DIRECTORY 
@@ -82,16 +92,13 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+ament_export_include_directories(include)
+ament_export_libraries(${lib_name})
 ament_export_dependencies(${dep_pkgs})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # comment the line when a copyright and license is added to all source files
   set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # comment the line when this package is in a git repo and when
-  # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()

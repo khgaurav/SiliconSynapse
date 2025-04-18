@@ -1,59 +1,49 @@
-#ifndef TERRAIN_LAYER_H_
-#define TERRAIN_LAYER_H_
+#ifndef TERRA_SENSE__TERRAIN_LAYER_HPP_
+#define TERRA_SENSE__TERRAIN_LAYER_HPP_
+
+#include <string>
+#include <memory>
+#include <limits>
 
 #include "rclcpp/rclcpp.hpp"
-#include "nav2_costmap_2d/layer.hpp"
-#include "nav2_costmap_2d/layered_costmap.hpp"
-#include <nav2_costmap_2d/costmap_layer.hpp>
-#include <nav2_costmap_2d/costmap_2d_ros.hpp>
-#include <pluginlib/class_list_macros.hpp>
-#include <std_msgs/msg/string.hpp>
-#include <nav2_util/node_utils.hpp>
-#include "nav2_costmap_2d/layered_costmap.hpp"
-
-// based on https://github.com/ros-navigation/navigation2_tutorials/blob/master/nav2_gradient_costmap_plugin/include/nav2_gradient_costmap_plugin/gradient_layer.hpp
+#include "std_msgs/msg/string.hpp"
+#include <grid_map_ros/grid_map_ros.hpp>
+#include <grid_map_msgs/msg/grid_map.hpp>
 
 namespace terra_sense
 {
 
-class TerrainLayer : public nav2_costmap_2d::Layer
+class TerrainLayer : public rclcpp::Node
 {
-  public:
-    TerrainLayer();
-
-  virtual void reset()
-  {
-    return;
-  }
-
-  virtual void onInitialize();
-  virtual void updateBounds(
-    double robot_x, double robot_y, double robot_yaw, double * min_x,
-    double * min_y,
-    double * max_x,
-    double * max_y); 
-  virtual void updateCosts(
-    nav2_costmap_2d::Costmap2D & master_grid,
-  int min_i, int min_j, int max_i, int max_j);
-
-  virtual void onFootprintChanged();
-
-  virtual bool isClearable() {return false;}
+public:
+  TerrainLayer(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
+  void updateAndPublishMap();
 
 private:
-  std::string old_terrain_ = "0";
-  double last_min_x_, last_min_y_, last_max_x_, last_max_y_;
-  bool need_recalculation_;
   void terrainCallback(const std_msgs::msg::String::SharedPtr msg);
-  std::string terrain_topic_; 
+
+  // Grid map
+  grid_map::GridMap grid_map_;
+  
+  // Subscriptions and publishers
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr terrain_subscription_;
+  rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr grid_map_publisher_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr cost_publisher_;
+  
+  // Timer for periodic updates
+  rclcpp::TimerBase::SharedPtr update_timer_;
+  
+  // Parameters and state variables
+  bool enabled_;
+  std::string map_frame_id_;
+  double map_resolution_;
+  double map_width_;
+  double map_height_;
+  
+  // Terrain state
   std::string terrain_;
-  unsigned char terrain_cost_;
-  unsigned char smooth_cost_;
-  unsigned char rough_cost_;
-  unsigned char obstacle_cost_;
 };
 
 }  // namespace terra_sense
-#endif
+
+#endif  // TERRA_SENSE__TERRAIN_LAYER_HPP_

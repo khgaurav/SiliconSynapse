@@ -6,24 +6,18 @@
   <description>TODO: Package description</description>
   <maintainer email="gianello.m@northeastern.edu">kivi</maintainer>
   <license>Apache-2.0</license>
-
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>ament_cmake_python</buildtool_depend>
-  
   <depend>rclcpp</depend>
+  <depend>rclcpp_components</depend>
   <depend>rclpy</depend>
   <depend>pluginlib</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
-  <depend>nav2_costmap_2d</depend>
+  <depend>grid_map_ros</depend>
+  <depend>grid_map_msgs</depend>
   <depend>pcl_conversions</depend>
   <depend>pcl_ros</depend>
-
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
-
-  <export>
-    <costmap_2d plugin="${prefix}/terrain_layer.xml"/>
-    <build_type>ament_cmake</build_type>
-  </export>
 </package>

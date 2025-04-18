@@ -1,136 +1,108 @@
 #include <terra_sense/terrain_layer.hpp>
-#include "nav2_costmap_2d/costmap_math.hpp"
-#include "nav2_costmap_2d/footprint.hpp"
-#include "tf2/convert.h"
-#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
-#include "nav2_util/validate_messages.hpp"
-#include "rclcpp/parameter_events_filter.hpp"
-
-using nav2_costmap_2d::LETHAL_OBSTACLE;
-using nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE;
-using nav2_costmap_2d::NO_INFORMATION;
-using nav2_costmap_2d::FREE_SPACE;
 
 namespace terra_sense
 {
 
-TerrainLayer::TerrainLayer()
-: last_min_x_(-std::numeric_limits<float>::max()),
-  last_min_y_(-std::numeric_limits<float>::max()),
-  last_max_x_(std::numeric_limits<float>::max()),
-  last_max_y_(std::numeric_limits<float>::max())
-{}
-
-void TerrainLayer::onInitialize()
+TerrainLayer::TerrainLayer(const rclcpp::NodeOptions & options)
+: rclcpp::Node("terrain_layer", options)
 {
-  auto node = node_.lock();
-  if (!node) {
-    throw std::runtime_error{"Failed to lock node"};
-  }
-
-  node->declare_parameter(name_ + "." + "enabled", rclcpp::ParameterValue(true));
-  node->get_parameter(name_ + "." + "enabled", enabled_);
-
-  terrain_subscription_ = node->create_subscription<std_msgs::msg::String>(
-    "/terrain_class", 10, std::bind(&TerrainLayer::terrainCallback, this, std::placeholders::_1));
-  cost_publisher_ = node->create_publisher<std_msgs::msg::String>("/cost_changes",40);
+  // Initialize parameters
+  declare_parameter("enabled", rclcpp::ParameterValue(true));
+  get_parameter("enabled", enabled_);
   
-  current_ = true;
-  need_recalculation_ = false;
-}
-
-void TerrainLayer::onFootprintChanged()
-{
-  need_recalculation_ = true;
-
-  RCLCPP_DEBUG(rclcpp::get_logger("nav2_costmap_2d"), "TerrainLayer::onFootprintChanged(): num footprint points: %lu", layered_costmap_->getFootprint().size());
-}
-
-void TerrainLayer::updateBounds(double origin_x, double origin_y, double origin_yaw, double* min_x, double* min_y, double* max_x, double* max_y)
-{
-  if (need_recalculation_) {
-    last_min_x_ = *min_x;
-    last_min_y_ = *min_y;
-    last_max_x_ = *max_x;
-    last_max_y_ = *max_y;
-    *min_x = -std::numeric_limits<float>::max();
-    *min_y = -std::numeric_limits<float>::max();
-    *max_x = std::numeric_limits<float>::max();
-    *max_y = std::numeric_limits<float>::max();
-    need_recalculation_ = false;
-  } else {
-    double tmp_min_x = last_min_x_;
-    double tmp_min_y = last_min_y_;
-    double tmp_max_x = last_max_x_;
-    double tmp_max_y = last_max_y_;
-    last_min_x_ = *min_x;
-    last_min_y_ = *min_y;
-    last_max_x_ = *max_x;
-    last_max_y_ = *max_y;
-    *min_x = std::min(tmp_min_x, *min_x);
-    *min_y = std::min(tmp_min_y, *min_y);
-    *max_x = std::max(tmp_max_x, *max_x);
-    *max_y = std::max(tmp_max_y, *max_y);
+  declare_parameter("map_frame_id", "base_link");
+  get_parameter("map_frame_id", map_frame_id_);
+  
+  declare_parameter("map_resolution", 0.05);
+  get_parameter("map_resolution", map_resolution_);
+  
+  declare_parameter("map_width", 10.0);
+  get_parameter("map_width", map_width_);
+  
+  declare_parameter("map_height", 10.0);
+  get_parameter("map_height", map_height_);
+  
+  // Initialize grid map with default layers
+  grid_map_.setFrameId(map_frame_id_);
+  grid_map_.setGeometry(grid_map::Length(map_width_, map_height_), map_resolution_);
+  grid_map_.add("terrain_cost");
+  
+  // Initialize with default cost (unknown terrain)
+  for (grid_map::GridMapIterator it(grid_map_); !it.isPastEnd(); ++it) {
+    grid_map_.at("terrain_cost", *it) = 255.0;  // NO_INFORMATION equivalent
   }
+  
+  // Create subscriptions and publishers
+  terrain_subscription_ = create_subscription<std_msgs::msg::String>(
+    "/terrain_class", 10, 
+    std::bind(&TerrainLayer::terrainCallback, this, std::placeholders::_1));
+  
+  grid_map_publisher_ = create_publisher<grid_map_msgs::msg::GridMap>(
+    "/terrain_grid_map", 10);
+  
+  cost_publisher_ = create_publisher<std_msgs::msg::String>("/cost_changes", 40);
+  
+  // Create a timer for periodic updates
+  update_timer_ = create_wall_timer(
+    std::chrono::milliseconds(100),
+    std::bind(&TerrainLayer::updateAndPublishMap, this));
+  
+  RCLCPP_INFO(get_logger(), "TerrainLayer initialized");
 }
 
-void TerrainLayer::updateCosts(nav2_costmap_2d::Costmap2D& master_grid, int min_i, int min_j, int max_i, int max_j)
+void TerrainLayer::updateAndPublishMap()
 {
   if (!enabled_) {
     return;
   }
   
-  auto* master_array = master_grid.getCharMap();
-  auto size_x = master_grid.getSizeInCellsX();
-  auto size_y = master_grid.getSizeInCellsY();
-
-  min_i = std::max(0, min_i);
-  min_j = std::max(0, min_j);
-  max_i = std::min(static_cast<int>(size_x), max_i);
-  max_j = std::min(static_cast<int>(size_y), max_j);
-
-  for (int i = min_i; i < max_i; ++i) {
-    for (int j = min_j; j < max_j; ++j) {
-      unsigned char old_cost = master_grid.getCost(i, j);
-      unsigned char new_cost = old_cost + terrain_cost_;
-      master_grid.setCost(i, j, new_cost);
-
-      std_msgs::msg::String msg;
-      std::stringstream ss;
-      ss << "terrain: " << terrain_ 
-         << ", prev cost: " << static_cast<int>(old_cost) 
-         << ", new cost: " << static_cast<int>(new_cost);
-      msg.data = ss.str();
-      cost_publisher_->publish(msg);
-      // auto index = master_grid.getIndex(i, j);
-      // if (terrain_cost_ != NO_INFORMATION) {
-      //   master_array[index] = getCost(mx, my) + terrain_cost_;
-      // }
-    }
-  }
+  // Update the timestamp
+  grid_map_.setTimestamp(now().nanoseconds());
+  
+  // Convert to message and publish
+  auto message = grid_map::GridMapRosConverter::toMessage(grid_map_);
+  grid_map_publisher_->publish(*message);
 }
 
 void TerrainLayer::terrainCallback(const std_msgs::msg::String::SharedPtr msg)
 {
+  // RCLCPP_INFO(get_logger(), "Data %s", msg->data.c_str());
   if(msg->data == terrain_)
     return;
-
+    
   terrain_ = msg->data;
-
+  float terrain_cost;
+  
+  // Define terrain costs (equivalent to original logic but without nav2 constants)
   if (terrain_ == "1" || terrain_ == "4") {
-    terrain_cost_ = FREE_SPACE;
+    terrain_cost = 0.0;  // FREE_SPACE
   } else if (terrain_ == "2" || terrain_ == "3" || terrain_ == "5") {
-    terrain_cost_ = 5;
+    terrain_cost = 5.0;  // Low cost
   } else if (terrain_ == "6") {
-    terrain_cost_ = LETHAL_OBSTACLE;
+    terrain_cost = 254.0;  // LETHAL_OBSTACLE
   } else {
-    terrain_cost_ = NO_INFORMATION;
+    terrain_cost = 255.0;  // NO_INFORMATION
   }
-
-  // RCLCPP_INFO(rclcpp::get_logger("TerrainLayer"), "Terrain cost: '%d'", terrain_cost_);
+  
+  // Update the entire grid map with the new terrain cost
+  for (grid_map::GridMapIterator it(grid_map_); !it.isPastEnd(); ++it) {
+    const grid_map::Index index = *it;
+    grid_map_.at("terrain_cost", index) = terrain_cost;
+  }
+  
+  // Publish cost change information
+  std_msgs::msg::String cost_msg;
+  std::stringstream ss;
+  ss << "terrain: " << terrain_ 
+     << ", new cost: " << terrain_cost;
+  cost_msg.data = ss.str();
+  cost_publisher_->publish(cost_msg);
+  
+  RCLCPP_INFO(get_logger(), "Updated terrain cost to %.1f for terrain type %s", 
+              terrain_cost, terrain_.c_str());
 }
 
 }  // namespace terra_sense
 
-#include "pluginlib/class_list_macros.hpp"
-PLUGINLIB_EXPORT_CLASS(terra_sense::TerrainLayer, nav2_costmap_2d::Layer)
+#include "rclcpp_components/register_node_macro.hpp"
+RCLCPP_COMPONENTS_REGISTER_NODE(terra_sense::TerrainLayer)
