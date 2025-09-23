@@ -26,25 +26,32 @@ find_package(rclcpp REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(nav2_costmap_2d REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(pcl_ros REQUIRED)
-find_package(pluginlib REQUIRED)
+find_package(grid_map_msgs REQUIRED)
+find_package(grid_map_core REQUIRED)
+find_package(grid_map_ros REQUIRED)
+find_package(grid_map_costmap_2d REQUIRED)
 
 set(dep_pkgs
   rclcpp
   rclpy
   std_msgs
-  nav2_costmap_2d
-  pluginlib
   sensor_msgs
   pcl_conversions
   pcl_ros
+  grid_map_msgs
+  grid_map_core
+  grid_map_ros
+  grid_map_costmap_2d
 )
 
 
 # either library or executable
-add_library(${lib_name}  SHARED 
+
+# build an executable node
+add_executable(terra_sense_node
+  src/terra_sense_node.cpp
   src/terrain_layer.cpp)
 
 # Cpp
@@ -52,14 +59,17 @@ include_directories(
   include
 )
 
-install(TARGETS ${lib_name}
-DESTINATION lib
+install(TARGETS terra_sense_node
+  DESTINATION lib/${PROJECT_NAME}
 )
 # DIRECTORY
 # FILES
 
-pluginlib_export_plugin_description_file(nav2_costmap_2d terrain_layer.xml)
-ament_target_dependencies(${lib_name} ${dep_pkgs})
+ament_target_dependencies(terra_sense_node ${dep_pkgs})
+
+target_include_directories(terra_sense_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
 
 install(
   DIRECTORY 
