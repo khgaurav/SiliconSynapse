@@ -21,7 +21,7 @@ ml_model = 'train2_resnet18_terraset6_float.h5'
 class MLPublisher(Node):
     def __init__(self):
         super().__init__('ml_publisher')
-        self.subscriber_ = self.create_subscription(Image, '/camera/image_raw', self.listener_callback, 10)
+        self.subscriber_ = self.create_subscription(Image, '/intel_realsense_r200_rgb/image_raw', self.listener_callback, 10)
         self.get_logger().info('[INFO] __init__, Create Subscription to rgb image...')
         self.subscriber_  # prevent unused variable warning
         self.publisher_ = self.create_publisher(String, 'terrain_class', 10)

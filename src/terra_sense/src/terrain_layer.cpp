@@ -16,7 +16,7 @@ void TerrainLayer::initialize(rclcpp::Node::SharedPtr node)
   node_ = node;
   terrain_subscriber_ = node_->create_subscription<std_msgs::msg::String>(
     "/terrain_class", 10, std::bind(&TerrainLayer::terrainCallback, this, std::placeholders::_1));
-  cost_publisher_ = node_->create_publisher<grid_map_msgs::msg::GridMap>("/terra_grid_map", 2);
+  cost_publisher_ = node_->create_publisher<grid_map_msgs::msg::GridMap>("/terrasense_grid_map", 2);
 }
 
 void TerrainLayer::updateCostsFromInput()
@@ -42,9 +42,7 @@ void TerrainLayer::updateCostsFromInput()
 
 void TerrainLayer::terrainCallback(const std_msgs::msg::String::SharedPtr msg)
 {
-  if (msg->data == terrain_class_) {
-    return;
-  }
+
   terrain_class_ = msg->data;
   if (terrain_class_ == "1" || terrain_class_ == "4") {
     terrain_cost_ = 0;
